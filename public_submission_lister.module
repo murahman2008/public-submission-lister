@@ -1,0 +1,470 @@
+<?php
+    define('PROGRAM_VOCABULARY_NAME', 'environmental_programs');
+    define('CONTENT_TYPE_NAME', 'public_submission');
+    define('PROGRAM_ID_FIELD', 'field_program');
+    define('FIRST_NAME_FIELD', 'field_first_name');
+    define('LAST_NAME_FIELD', 'field_last_name');
+    define('SUBMITTED_FILE_FIELD', 'field_submitted_document');
+    define('DEFAULT_PAGE_NO', 1);
+    define('DEFAULT_PAGE_SIZE', 50);
+    define('DEFAULT_SUBMISSION_ORDER_FIELD', 'field_first_name');
+    define('UPLOADED_FILE_FOLDER_NAME', 'public_submissions');
+    define('DEFAULT_DRUPAL_FILE_PATH', 'sites/default/files');
+    define('UPLOADED_FILE_PATH', 'sites/default/files/public_submissions');
+
+    function da($anything, $die = false)
+    {
+        echo "<pre>"; 
+        var_dump($anything);
+        echo "</pre>";
+
+        if($die)
+            die();
+    }
+    
+    /**
+     * hook_theme() implementation
+     */
+    function public_submission_lister_theme($existing, $type, $theme, $path)
+    {
+        return array(
+            'landing_page' => array(
+                'render element' => 'element',
+                'template' => 'public_submission_lister--landing_page'
+            ),
+            'submission_name_index' => array(
+                'render element' => 'element',
+                'template' => 'public_submission_lister--name_index'
+            ),
+            'display_submissions' => array(
+                'render element' => 'element',
+                'template' => 'public_submission_lister--submissions'
+            )
+        );
+    }
+    
+    /**
+     * hook_menu() implementation
+     */
+    function public_submission_lister_menu()
+    {
+        return array(
+            'public-submission' => array(
+                'title' => 'Public Submission',
+                'page callback' => 'fetchAndDisplayPrograms',
+                'access callback' => TRUE                    
+            ),
+            'public-submission/%/%' => array(
+                'title' => 'Public Submission',
+                'page callback' => 'fetchAndDisplaySubmissions',
+                'access callback' => TRUE,
+                'page arguments' => array(1, 2)                    
+            ),         
+            'public-submission/%' => array(
+                'title' => 'Public Submission',
+                'page callback' => 'fetchAndDisplaySubmitterNameIndex',
+                'access callback' => TRUE,
+                'page arguments' => array(1)                    
+            ),
+            'import_public-submission' => array(
+                'title' => 'Public Submission',
+                'page callback' => 'addPublicSubmission',
+                'access callback' => TRUE
+            )     
+        );
+    }
+
+    /**
+     * hook_node_presave() implementation
+     * This function checks 
+     *      - if the node that is being saved is a 'public_submission' and
+     *      - move the uploaded file from 'sites/default/files/public_submissions' to 'sites/default/files/public_submissions/{tid of the program}'
+     */
+    function public_submission_lister_node_presave($node)
+    {
+        if($node->type == CONTENT_TYPE_NAME)
+        {
+            try
+            {
+                //da($node);
+                $newNode = json_decode(json_encode($node), true);
+                
+                $fileId = $newNode[SUBMITTED_FILE_FIELD]['und'][0]['fid'];
+                $file = file_load($fileId);
+
+                if(is_object($file))
+                {
+                    $filename = $file->filename;
+                    $fileURL = $file->uri;
+                    
+                    $fileURL = str_replace('public://', '', $fileURL);
+                    $fileURLArray = explode("/", $fileURL);
+                    $actualFileName = array_pop($fileURLArray);
+                    
+                    $fileURLArray = array();
+                    $fileURLArray[] = UPLOADED_FILE_FOLDER_NAME;
+                    $fileURLArray[] = $newNode[PROGRAM_ID_FIELD]['und'][0]['tid'];
+                    
+                    $correctFilePath = DRUPAL_ROOT.'/'.DEFAULT_DRUPAL_FILE_PATH.'/'.implode("/", $fileURLArray);
+                    
+                    if(!file_exists($correctFilePath))                
+                        mkdir($correctFilePath);
+
+                    if(file_exists($correctFilePath))
+                    {
+                        //da($file);
+                        //da("public://".implode("/", $fileURLArray)."/".$actualFileName, true);
+                        //da($fileURLArray, true);
+                        
+                        $file = file_move($file, "public://".implode("/", $fileURLArray)."/".date('YmdHis').'_'.rand(1, 1000).'_'.$actualFileName);
+                        //da($file);
+                        //$newNode[SUBMITTED_FILE_FIELD]['und'][0] = array($file);
+                        if($file === false)
+                            throw new Exception('Unknown');
+                    }
+                    else
+                        throw new Exception('Failed to create directory '.$correctFilePath);
+                }
+            }
+            catch(Exception $ex)
+            {
+                drupal_set_message("Failed to move uploaded file to the appropriate directory. Reason [".$ex->getMessage()."]");
+            }
+        }
+    }
+
+    /**
+     * This function bulk loads public_submission nodes
+     */
+    function addPublicSubmission()
+    {
+        try
+        {
+            for($i = 1; $i <= 5; $i++)
+            {
+                $fileName = $newFileName = 'Eliwana.jpg';
+                $programId = 361;
+
+                //$newFileName = date('YmdHis').'_'.rand(1, 1000).'_'.$fileName;
+
+                $sourceFullPath = drupal_get_path('module', 'public_submission_lister').'/assets/import';
+                //$destinationFullPath = DRUPAL_ROOT.'/'.DEFAULT_DRUPAL_FILE_PATH.'/'.UPLOADED_FILE_FOLDER_NAME.'/'.$programId;
+
+                //if(!file_exists($destinationFullPath))
+                //   mkdir($destinationFullPath);
+
+                //rename($sourceFullPath.'/'.$fileName, $sourceFullPath.'/'.$newFileName);
+
+                $file = (object)array(
+                    'uid' => 1,
+                    'uri' => $sourceFullPath.'/'.$newFileName,
+                    'status' => 1,
+                    'display' => 1,
+                    'filemime' => file_get_mimetype($newFileName)
+                );
+
+                //if(file_prepare_directory(DRUPAL_ROOT.'/'.DEFAULT_DRUPAL_FILE_PATH.'/'.UPLOADED_FILE_FOLDER_NAME.'/'.$programId.'/', FILE_CREATE_DIRECTORY))
+                //$drupalFile = file_copy($file, "public://".UPLOADED_FILE_FOLDER_NAME."/".$programId."/");
+                $drupalFile = file_copy($file, "public://".UPLOADED_FILE_FOLDER_NAME);
+                //da($drupalFile, true);
+                
+                global $user;
+                
+                $node = new stdClass();
+                $node->title = 'Automatic '.$i;
+                $node->type = CONTENT_TYPE_NAME;
+                node_object_prepare($node);
+
+                $node->language = LANGUAGE_NONE;
+                $node->uid = $user->uid;
+                $node->status = 1;
+                $node->promote = 0;
+                $node->comment = 0;
+
+                //$node->field_first_name[$node->language][]['value'] = 'Auto first name';
+                //$node->field_last_name[$node->language][]['value'] = 'Auto last name';
+                $node->{FIRST_NAME_FIELD}[$node->language][]['value'] = 'Auto First Name';
+                $node->{LAST_NAME_FIELD}[$node->language][]['value'] = 'Auto Last Name';
+
+                $node->{PROGRAM_ID_FIELD}[$node->language][]['tid'] = $programId;
+
+                $node->{SUBMITTED_FILE_FIELD}['und'][0] = (array)$drupalFile;
+
+                $node = node_submit($node);
+                node_save($node);
+
+                da($node);
+            }
+        }
+        catch(Exception $ex)
+        {
+            da($ex->getMessage());
+        }
+    }
+
+    /**
+     * This function fetches and displays the list of `environmental_programs` that are accepting public submissions
+     * The name of the vocabulary(environmental_programs) can be changed in the defines at the top of this file
+     * 
+     */
+    function fetchAndDisplayPrograms()
+    {
+        $output = array();
+
+        try
+        {
+            $vocabularyName = 'environmental_programs';
+            $vocabulary = taxonomy_vocabulary_machine_name_load($vocabularyName);
+            $terms = entity_load('taxonomy_term', FALSE, array('vid' => $vocabulary->vid));
+            
+            if(count($terms) <= 0)
+                throw new Exception('No programs found');
+            
+            foreach($terms as $term)
+            {
+                $description = trim($term->description);
+                $description = json_decode($description, true);
+                if($description === false || !is_array($description) || !isset($description['active']) || trim($description['active']) === '1')
+                    $programArray[] = $term;
+            }
+
+            if(count($programArray) <= 0)                
+                throw new Exception('No Active programs found');
+
+            usort($programArray, function($a, $b) {
+                return strnatcmp($a->name, $b->name);
+            });
+
+            $output['base_url'] = $GLOBALS['base_url'];
+            $output['data'] = array();
+ 
+            foreach($programArray as $program)
+                $output['data'][] = array('tid' => $program->tid, 'vid' => $program->vid, 'name' => $program->name, 'v_machine_name' => $program->vocabulary_machine_name);
+            
+        }
+        catch(Exception $ex)
+        {
+            $output['error'] = $ex->getMessage();
+        }
+
+        return theme('landing_page', $output);
+    }
+
+    /**
+     * This function displays the first character of all the `first_name` of all the `public submissions` belonging to a specific `program`
+     * 
+     */
+    function fetchAndDisplaySubmitterNameIndex($programId)
+    {
+        $output = array();
+
+        try
+        {
+            if(trim($programId) === '' || !is_numeric($programId))
+                throw new Exception('No program data provided.');
+            
+            if(($term = taxonomy_term_load($programId)) === false)
+                throw new Exception('Invalid Program data provided');
+            
+            if(trim($term->vocabulary_machine_name) !== PROGRAM_VOCABULARY_NAME)                
+                throw new Exception('Invalid program data provided!');                
+
+            $query = new EntityFieldQuery();
+            $query
+                ->entityCondition('entity_type', 'node')
+                ->entityCondition('bundle', CONTENT_TYPE_NAME)
+                ->propertyCondition('status', NODE_PUBLISHED)
+                ->fieldCondition(PROGRAM_ID_FIELD, 'tid',  $programId);
+            $result = $query->execute(); 
+            
+            if(!isset($result['node']) || count($result['node']) <= 0)
+                throw new Exception('No Public submission found for this program');
+
+            
+            $nodes = $result['node'];
+            $finalNodeArray = array();
+    
+            $fieldName = FIRST_NAME_FIELD;
+            $fieldInfo = field_info_field($fieldName);
+            $fieldId = $fieldInfo['id'];
+    
+            field_attach_load('node', $nodes, FIELD_LOAD_CURRENT, array('field_id' => $fieldId));
+    
+            foreach($nodes as $node)
+                $finalNodeArray[$node->nid] = array('nid' => $node->nid, 'vid' => $node->vid, 'first_name' => strtoupper($node->{FIRST_NAME_FIELD}['und'][0]['value']));
+    
+            usort($finalNodeArray, function($a, $b) {
+               return strnatcmp($a['first_name'], $b['first_name']);
+            });
+    
+            $firstNameFirstCharacterArray = array_map(create_function('$a', 'return $a["first_name"][0];'), $finalNodeArray);
+            $firstNameFirstCharacterArray = array_unique($firstNameFirstCharacterArray);
+                
+            $output['characters'] = $firstNameFirstCharacterArray;
+            $output['programId'] = $programId;
+            $output['base_url'] = $GLOBALS['base_url'];
+                            
+        }
+        catch(Exception $ex)
+        {
+            $output['error'] = $ex->getMessage();
+        }
+
+        return theme('submission_name_index', $output);
+    }
+
+    /**
+     * This function generates pagination data based on the params provided
+     */
+    function _generatePaginationData($pageNo, $pageSize, $nodeCount, $url)
+    {
+        $totalNumberOfPages = (int)($nodeCount / $pageSize);
+        if($nodeCount % $pageSize > 0)
+            $totalNumberOfPages += 1;
+
+        if($pageNo > $totalNumberOfPages)                
+            $pageNo = 1;
+
+        $firstPage = 1;
+        $lastPage = $totalNumberOfPages;
+        $beforeArray = $afterArray = array();
+        
+        $startPosition = ($pageNo - 2);
+        $startPosition = (($startPosition <= 0) ? 1 : $startPosition);
+        $finishPostion = $pageNo;
+
+        for($i = $startPosition; $i < $finishPostion; $i++)
+            $beforeArray[] = $i;
+        
+        $startPosition = $pageNo + 1;
+        if($startPosition <= $totalNumberOfPages)
+        {
+            $finishPostion = $pageNo + 2;
+            $finishPostion = (($finishPostion > $totalNumberOfPages) ? $totalNumberOfPages : $finishPostion);
+            
+            for($i = $startPosition; $i <= $finishPostion; $i++)
+                $afterArray[] = $i;
+        }
+
+        $pageNoArray = array_merge($beforeArray, array($pageNo), $afterArray);
+        $tmp = array();
+        
+        foreach($pageNoArray as $p)
+            $tmp[$p] = $url.'?page_no='.$p.'&page_size='.$pageSize;
+            
+        return array(
+            'page_no' => $pageNo,
+            'page_size' => $pageSize,
+            'page_no_array' => $tmp,
+            'first_page' => $url.'?page_no=1&page_size='.$pageSize,
+            'last_page' => $url.'?page_no='.$lastPage.'&page_size='.$pageSize
+        );
+    }
+
+    /**
+     * This function generates EntityFieldQuery object 
+     * 
+     * THe query object will try to fetch `node` of type `public_submission` that belongs to a specific `programId`
+     * It can also add field condition to narrow down the fetch
+     */
+    function _generateQueryObject($programId, $nameIndex, $pageNo, $pageSize, $fetchCount = false)
+    {
+        $query = new EntityFieldQuery();
+        $query
+            ->entityCondition('entity_type', 'node')                
+            ->entityCondition('bundle', CONTENT_TYPE_NAME)
+            ->propertyCondition('status', NODE_PUBLISHED)
+            ->fieldCondition(PROGRAM_ID_FIELD, 'tid', $programId);
+
+        $nameIndex = trim($nameIndex);
+        if($nameIndex !== '' && $nameIndex !== '*')                
+            $query->fieldCondition(FIRST_NAME_FIELD, 'value', $nameIndex.'%', 'like');            
+
+        $query->fieldOrderBy(DEFAULT_SUBMISSION_ORDER_FIELD, 'value', 'ASC');
+        if($fetchCount)           
+            $query->count();
+        else
+            $query->range((($pageNo - 1)*$pageSize), $pageSize);           
+
+        return $query;            
+    }
+
+    /**
+     * This function displays the full name of the submitters of the `public_submission`(s) that belong to a specific program
+     */
+    function fetchAndDisplaySubmissions($programId, $nameIndex)
+    {
+        $output = array();
+
+        try
+        {
+            if(trim($programId) === '' || !is_numeric($programId))
+            throw new Exception('No program data provided.');
+        
+            if(($term = taxonomy_term_load($programId)) === false)
+                throw new Exception('Invalid Program data provided');
+            
+            if(trim($term->vocabulary_machine_name) !== PROGRAM_VOCABULARY_NAME)                
+                throw new Exception('Invalid program data provided!');
+
+            $nameIndex = trim($nameIndex);
+            if($nameIndex === '')
+                $nameIndex = '*';
+
+            if(strlen($nameIndex) > 1)
+               $nameIndex = $nameIndex[0];
+
+            $pageNo = ((isset($_GET['page_no']) && is_numeric($_GET['page_no']) && $_GET['page_no'] > 0) ? $_GET['page_no'] : DEFAULT_PAGE_NO);
+            $pageSize = ((isset($_GET['page_size']) && is_numeric($_GET['page_size']) && $_GET['page_size'] > 0) ? $_GET['page_size'] : DEFAULT_PAGE_SIZE);
+
+            $query = _generateQueryObject($programId, $nameIndex, $pageNo, $pageSize, true);
+            $nodeCount = $query->execute();
+            
+            if($nodeCount <= 0)
+                throw new Exception('No submission found');
+
+            $paginationURL = $GLOBALS['base_url'].'/public-submission/'.$programId.'/'.rawurlencode($nameIndex); 
+            $paginationData = _generatePaginationData($pageNo, $pageSize, $nodeCount, $paginationURL);
+
+            $query = _generateQueryObject($programId, $nameIndex, $paginationData['page_no'], $paginationData['page_size'], false);
+            $result = $query->execute();
+
+            if(count($result) <= 0 || !isset($result['node']) || count($result['node']) <= 0)
+                throw new Exception('No Submission found...');
+
+            $finalNodeArray = array();                
+            $nodeIdArray = array_keys($result['node']);                
+            $nodeArray = node_load_multiple($nodeIdArray);
+
+            //da($nodeArray, true);
+
+            foreach($nodeArray as $key => $value)
+            {
+                $v = json_decode(json_encode($value), true);
+                $uri = str_replace('public://', '', $v[SUBMITTED_FILE_FIELD]['und'][0]['uri']);
+                $uriArray = explode('/', $uri);
+                $actualFileName = array_pop($uriArray);
+
+                $finalNodeArray[$key] = array(
+                    'first_name' => $v[FIRST_NAME_FIELD]['und'][0]['value'],
+                    'last_name' => $v[LAST_NAME_FIELD]['und'][0]['value'],
+                    'file_name' => $v[SUBMITTED_FILE_FIELD]['und'][0]['filename'],
+                    'file_url' => $GLOBALS['base_url'].'/'.DEFAULT_DRUPAL_FILE_PATH.'/'.implode("/", $uriArray)."/".rawurlencode($actualFileName),
+                    'program_id' => $v[PROGRAM_ID_FIELD]['und'][0]['tid']
+                );
+            }
+
+            $output['pagination'] = $paginationData;
+            $output['data'] = $finalNodeArray;
+            $output['program_id'] = $programId;
+            $output['name_index'] = $nameIndex;
+            $output['base_url'] = $GLOBALS['base_url'];
+        }
+        catch(Exception $ex)
+        {
+            $output['error'] = $ex->getMessage();
+        }
+
+        return theme('display_submissions', $output);
+    }  
+?>

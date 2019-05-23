@@ -1,0 +1,4 @@
+name = "Public Submission Lister"
+description = "This module dynamically lists all the public submissions for a program"
+core = "7.x"
+author = "Mushfique Rahman"
